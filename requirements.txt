@@ -1,0 +1,4 @@
+mlx-whisper
+whisper-timestamped
+torch
+pytest

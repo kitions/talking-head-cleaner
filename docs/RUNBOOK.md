@@ -12,10 +12,13 @@ scripts/talking_head_cleaner.py
 
 ## 环境要求
 
-当前命令复用上一轮已经建好的 Python 环境：
+建议在项目内创建 Python 虚拟环境：
 
-```text
-.venv
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -r requirements.txt
 ```
 
 需要本机已有：
@@ -26,7 +29,7 @@ scripts/talking_head_cleaner.py
 - `whisper-timestamped`
 - `torch`
 
-如果使用完整模式，MLX Whisper 需要可用的 Apple Metal/GPU 环境。当前 Codex 沙盒有时拿不到 Metal，这种情况下要加 `--skip-primary`，改用 CPU-only 复核模型。
+如果使用完整模式，MLX Whisper 需要可用的 Apple Metal/GPU 环境。远程、无头或沙盒环境有时拿不到 Metal，这种情况下要加 `--skip-primary`，改用 CPU-only 复核模型。
 
 ## 新视频推荐流程
 
@@ -69,11 +72,11 @@ python scripts/talking_head_cleaner.py \
   --dry-run
 ```
 
-也可以让 Codex 按当前 `final_v2` 流程代跑：
+也可以让 AI agent 按当前命令代跑：
 
 ```text
-帮我按 output_project/final_v2 这套强力去语气词流程，
-处理 ./input_videos
+帮我用 talking-head-cleaner 的 aggressive 模式处理 ./input_videos，
+输出到 ./input_videos-refined
 ```
 
 建议输出目录：
@@ -94,19 +97,13 @@ output_project/
 └── report.md
 ```
 
-如果做复核补切，可以增加：
-
-```text
-final_v2/
-manifests_v2/
-verification_v2/
-```
+如果做复核补切，补切后的视频仍在 `final/`，文件名会增加 `_r1` 后缀。
 
 ## 最低检查清单
 
 处理完成后至少检查：
 
-- `final` 或 `final_v2` 里是否有对应数量的 mp4；
+- `final/` 里是否有对应数量的 mp4；
 - 每条视频能正常播放；
 - 分辨率是否仍是 1080x1920；
 - 帧率是否 30fps；
@@ -191,14 +188,13 @@ verification_v2/
 
 ## 建议命令形态
 
-后续封装后，推荐命令：
+推荐命令：
 
 ```bash
 python scripts/talking_head_cleaner.py \
   --input ./input_videos \
   --output ./input_videos-refined \
   --mode aggressive \
-  --verify \
   --max-refine-rounds 1
 ```
 
@@ -209,7 +205,6 @@ python scripts/talking_head_cleaner.py \
 | `--input` | 输入视频目录 | 必填 |
 | `--output` | 输出项目目录 | 必填 |
 | `--mode` | `safe/aggressive/editor` | `aggressive` |
-| `--verify` | 是否成片复核 | 开启 |
 | `--max-refine-rounds` | 自动补切轮数 | `1` |
 | `--keep-pause` | 长停顿缩短后保留时长 | `0.4` |
 | `--fade-ms` | 切点音频淡化 | `30` |
