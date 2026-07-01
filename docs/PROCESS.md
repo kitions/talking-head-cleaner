@@ -76,6 +76,8 @@ source.mp4 -> final/source_roughcut_aggressive_r1.mp4
 音频声道：单声道
 ```
 
+当前默认输出是高质量重编码：H.264 CRF 18、30fps、AAC 160k 单声道。它不是无损输出；如果源视频不是 30fps，会被转换为 30fps。
+
 ## 为什么不用无限循环
 
 可以无限转写、再切、再转写，但不建议这样做。
