@@ -1,9 +1,29 @@
 # talking-head-cleaner
 
-本地口播粗剪工具。它使用本地 Whisper 系列模型定位“嗯、呃、额、啊、唔”等语气词，再用 FFmpeg 同步裁剪画面和声音。
+Local-first talking-head video cleaner for removing filler words and awkward pauses with Whisper timestamps and FFmpeg cuts.
+
+本地优先的口播视频粗剪工具。它使用本地 Whisper 系列模型定位“嗯、呃、额、啊、唔”等语气词，再用 FFmpeg 同步裁剪画面和声音，适合把单人口播素材快速整理成更干净的初剪版本。
 
 定位：单人口播 / 本地批量粗剪。  
 不是：通用短视频包装工具、字幕工具、多人对话剪辑器。
+
+## GitHub 描述建议
+
+如果要填写 GitHub 仓库 About 描述，可以使用：
+
+```text
+Local-first talking-head video cleaner that removes filler words and awkward pauses using Whisper timestamps and FFmpeg.
+```
+
+中文描述：
+
+```text
+本地优先的口播视频粗剪工具，基于 Whisper 词级时间戳和 FFmpeg 自动清理“嗯、呃、啊”等语气词与长停顿。
+```
+
+## 项目简介
+
+`talking-head-cleaner` 面向单人口播素材：先用本地 ASR 模型生成逐字稿和词级时间戳，再通过规则引擎识别明确的 filler、长停顿和待复核片段，最后调用 FFmpeg 同步裁剪音频与画面。所有处理默认在本机完成，源文件只读，输出包含成片、剪辑 manifest、复核结果和汇总报告。
 
 ## 能做什么
 
