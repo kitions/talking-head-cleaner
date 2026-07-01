@@ -114,10 +114,13 @@ python scripts/talking_head_cleaner.py \
   --input ./input_videos \
   --output ./output_project \
   --mode aggressive \
-  --max-refine-rounds 1
+  --max-refine-rounds 1 \
+  --write-srt
 ```
 
 如果希望 manifest 记录源文件 sha256，可加 `--hash-sources`。默认不计算 hash，避免 dry-run 或大文件扫描变慢。
+
+`--write-srt` 会为最终成片生成配套 `.srt` 字幕，字幕时间轴会跟随已删除片段重映射。
 
 如果要把 manifest 或 `report.md` 分享给别人，建议加 `--redact-paths`，只记录文件名，不写入本机绝对路径：
 
@@ -160,6 +163,7 @@ output_project/
 ├── final/             # 最终成片
 ├── manifests/         # 每条视频的剪辑决策记录
 ├── verification/      # 成片复核转写
+├── subtitles/         # 可选：最终成片配套 SRT 字幕
 ├── waveforms/         # 预留：切点波形图
 ├── work/              # 中间工作目录
 └── report.md          # 汇总报告
@@ -170,6 +174,8 @@ output_project/
 ```text
 final/sample_01_roughcut_aggressive.mp4
 final/sample_01_roughcut_aggressive_r1.mp4
+subtitles/sample_01_roughcut_aggressive.srt
+subtitles/sample_01_roughcut_aggressive_r1.srt
 ```
 
 如果 `--max-refine-rounds 1` 后发现 residual filler，会生成 `_r1` 补切版本，并把它作为 manifest 里的 `final_output`。

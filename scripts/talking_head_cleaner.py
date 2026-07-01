@@ -71,6 +71,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--fade-ms", type=float, default=30.0)
     parser.add_argument("--dry-run", action="store_true", help="Create project skeleton only.")
     parser.add_argument(
+        "--write-srt",
+        action="store_true",
+        help="Write cut-aware SRT subtitles for final outputs.",
+    )
+    parser.add_argument(
         "--hash-sources",
         action="store_true",
         help="Include source sha256 in manifests. Disabled by default for fast dry-runs.",
@@ -137,6 +142,7 @@ def build_project_dirs(output: Path) -> dict[str, Path]:
         "manifests": output / "manifests",
         "verification": output / "verification",
         "waveforms": output / "waveforms",
+        "subtitles": output / "subtitles",
         "work": output / "work",
     }
     for directory in dirs.values():
@@ -362,6 +368,91 @@ def invert_cuts(cuts: Iterable[dict], *, duration: float, min_keep: float = 0.05
     return keep
 
 
+def subtitle_text(word: dict) -> str:
+    return str(word.get("text", word.get("word", ""))).strip()
+
+
+def map_words_after_cuts(words: Iterable[dict], cuts: list[dict], *, duration: float) -> list[dict]:
+    keep_intervals = invert_cuts(cuts, duration=duration) if cuts else [(0.0, duration)]
+    mapped: list[dict] = []
+    output_cursor = 0.0
+    for keep_start, keep_end in keep_intervals:
+        for word in words:
+            text = subtitle_text(word)
+            if not text:
+                continue
+            start = float(word["start"])
+            end = float(word["end"])
+            midpoint = (start + end) / 2
+            if not (keep_start <= midpoint < keep_end):
+                continue
+            mapped_start = output_cursor + max(start, keep_start) - keep_start
+            mapped_end = output_cursor + min(end, keep_end) - keep_start
+            if mapped_end <= mapped_start:
+                continue
+            mapped.append(
+                {
+                    "text": text,
+                    "start": round(mapped_start, 3),
+                    "end": round(mapped_end, 3),
+                }
+            )
+        output_cursor += keep_end - keep_start
+    return mapped
+
+
+def format_srt_time(seconds: float) -> str:
+    total_ms = max(0, int(round(seconds * 1000)))
+    hours, remainder = divmod(total_ms, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    secs, millis = divmod(remainder, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def srt_from_words(
+    words: Iterable[dict], *, max_chars: int = 18, max_gap: float = 0.8, max_duration: float = 4.0
+) -> str:
+    cues: list[dict] = []
+    current: dict | None = None
+    for word in words:
+        text = subtitle_text(word)
+        if not text:
+            continue
+        start = float(word["start"])
+        end = float(word["end"])
+        if end <= start:
+            continue
+        if current is None:
+            current = {"start": start, "end": end, "texts": [text]}
+            continue
+        gap = start - float(current["end"])
+        joined = "".join(current["texts"] + [text])
+        duration = end - float(current["start"])
+        if gap > max_gap or len(joined) > max_chars or duration > max_duration:
+            cues.append(current)
+            current = {"start": start, "end": end, "texts": [text]}
+            continue
+        current["end"] = end
+        current["texts"].append(text)
+    if current is not None:
+        cues.append(current)
+
+    blocks = []
+    for index, cue in enumerate(cues, start=1):
+        text = "".join(cue["texts"])
+        blocks.append(
+            f"{index}\n"
+            f"{format_srt_time(float(cue['start']))} --> {format_srt_time(float(cue['end']))}\n"
+            f"{text}"
+        )
+    return "\n\n".join(blocks) + ("\n" if blocks else "")
+
+
+def write_srt(path: Path, words: Iterable[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(srt_from_words(words), encoding="utf-8")
+
+
 def build_filter_complex(keep_intervals: list[tuple[float, float]], *, fade: float) -> str:
     if not keep_intervals:
         raise ValueError("at least one keep interval is required")
@@ -568,6 +659,7 @@ def process_one(
     max_refine_rounds: int,
     hash_sources: bool,
     redact_paths: bool,
+    write_srt_file: bool,
 ) -> dict:
     stem = media.stem
     start_time = time.time()
@@ -591,6 +683,9 @@ def process_one(
 
     secondary = secondary_transcriber.transcribe(media, dirs["analysis"] / f"{stem}_secondary_disfluency.json")
     cuts, review = decide_cuts(primary, secondary, config=config)
+    subtitle_words = (
+        map_words_after_cuts(flatten_words(secondary), cuts, duration=duration) if write_srt_file else []
+    )
 
     current_input = media
     current_duration = duration
@@ -629,6 +724,10 @@ def process_one(
         refined_output = dirs["final"] / f"{media.stem}_roughcut_{config.mode}_r{round_index}.mp4"
         current_duration = media_duration(output)
         render(output, refined_output, residual_cuts, duration=current_duration, config=config)
+        if write_srt_file:
+            subtitle_words = map_words_after_cuts(
+                subtitle_words, residual_cuts, duration=current_duration
+            )
         rounds.append(
             {
                 "round": round_index,
@@ -641,12 +740,20 @@ def process_one(
         )
         output = refined_output
 
+    subtitle_output = None
+    if write_srt_file:
+        subtitle_output = dirs["subtitles"] / f"{output.stem}.srt"
+        write_srt(subtitle_output, subtitle_words)
+
     final_probe = redact_probe_paths(probe(output), redact=redact_paths)
     output_duration = float(final_probe["format"]["duration"])
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "source": redact_path(media, redact=redact_paths),
         "final_output": redact_path(output, redact=redact_paths),
+        "subtitle_output": (
+            redact_path(subtitle_output, redact=redact_paths) if subtitle_output else None
+        ),
         "mode": config.mode,
         "config": asdict(config),
         "primary_model": None if skip_primary else primary_model,

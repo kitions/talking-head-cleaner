@@ -21,6 +21,11 @@ from talking_head_cleaner import (  # noqa: E402
     SecondaryTranscriber,
     source_record_from_stat,
     dry_run_project,
+    format_srt_time,
+    map_words_after_cuts,
+    main,
+    process_one,
+    srt_from_words,
 )
 
 
@@ -108,7 +113,15 @@ def test_find_residual_fillers_reads_whisper_timestamped_segments():
 def test_project_dirs_are_created(tmp_path):
     dirs = build_project_dirs(tmp_path)
 
-    for key in ["analysis", "final", "manifests", "verification", "waveforms", "work"]:
+    for key in [
+        "analysis",
+        "final",
+        "manifests",
+        "verification",
+        "waveforms",
+        "work",
+        "subtitles",
+    ]:
         assert dirs[key].is_dir()
 
 
@@ -201,6 +214,20 @@ def test_parse_args_supports_redact_paths(tmp_path):
     )
 
     assert args.redact_paths is True
+
+
+def test_parse_args_supports_write_srt(tmp_path):
+    args = parse_args(
+        [
+            "--input",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out"),
+            "--write-srt",
+        ]
+    )
+
+    assert args.write_srt is True
 
 
 def test_validate_args_rejects_negative_refine_rounds(tmp_path):
@@ -376,6 +403,114 @@ def test_dry_run_redacts_manifest_paths_when_requested(tmp_path):
     assert manifest["source"] == "a.mp4"
     assert manifest["final_output"] == "a_roughcut_aggressive.mp4"
     assert manifest["source_record"]["path"] == "a.mp4"
+
+
+def test_main_dry_run_accepts_write_srt_flag(tmp_path):
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "a.mp4").write_bytes(b"abc")
+    output = tmp_path / "out"
+
+    result = main(
+        [
+            "--input",
+            str(input_dir),
+            "--output",
+            str(output),
+            "--dry-run",
+            "--write-srt",
+            "--redact-paths",
+        ]
+    )
+
+    assert result == 0
+    assert (output / "manifests" / "a_manifest.json").is_file()
+
+
+def test_format_srt_time_uses_millisecond_commas():
+    assert format_srt_time(0) == "00:00:00,000"
+    assert format_srt_time(65.4321) == "00:01:05,432"
+    assert format_srt_time(3661.9996) == "01:01:02,000"
+
+
+def test_map_words_after_cuts_removes_cut_words_and_shifts_time():
+    words = [
+        {"word": "你好", "start": 0.0, "end": 0.4},
+        {"word": "嗯", "start": 1.0, "end": 1.2},
+        {"word": "继续", "start": 2.0, "end": 2.4},
+    ]
+    cuts = [{"start": 0.8, "end": 1.5, "reason": "unit"}]
+
+    mapped = map_words_after_cuts(words, cuts, duration=3.0)
+
+    assert mapped == [
+        {"text": "你好", "start": 0.0, "end": 0.4},
+        {"text": "继续", "start": 1.3, "end": 1.7},
+    ]
+
+
+def test_srt_from_words_groups_words_into_cues():
+    words = [
+        {"text": "你好", "start": 0.0, "end": 0.5},
+        {"text": "继续", "start": 0.6, "end": 1.0},
+        {"text": "下一句", "start": 2.2, "end": 2.8},
+    ]
+
+    srt = srt_from_words(words, max_chars=8, max_gap=0.8)
+
+    assert "1\n00:00:00,000 --> 00:00:01,000\n你好继续" in srt
+    assert "2\n00:00:02,200 --> 00:00:02,800\n下一句" in srt
+
+
+def test_process_one_writes_cut_aware_srt(tmp_path, monkeypatch):
+    media = tmp_path / "input.mp4"
+    media.write_bytes(b"media")
+    dirs = build_project_dirs(tmp_path / "out")
+
+    class FakeSecondaryTranscriber:
+        def transcribe(self, media_path, output_path):
+            return {
+                "segments": [
+                    {
+                        "words": [
+                            {"word": "你好", "start": 0.0, "end": 0.4},
+                            {"word": "嗯", "start": 1.0, "end": 1.2},
+                            {"word": "继续", "start": 2.0, "end": 2.4},
+                        ]
+                    }
+                ]
+            }
+
+    def fake_render(source, output, cuts, *, duration, config):
+        output.write_bytes(b"rendered")
+
+    monkeypatch.setattr("talking_head_cleaner.media_duration", lambda path: 3.0)
+    monkeypatch.setattr("talking_head_cleaner.render", fake_render)
+    monkeypatch.setattr(
+        "talking_head_cleaner.probe",
+        lambda path: {"format": {"duration": "2.3", "filename": str(path)}, "streams": []},
+    )
+
+    manifest = process_one(
+        media,
+        dirs=dirs,
+        config=CleanerConfig(mode="aggressive"),
+        primary_model="primary",
+        secondary_model="secondary",
+        secondary_transcriber=FakeSecondaryTranscriber(),
+        skip_primary=True,
+        max_refine_rounds=0,
+        hash_sources=False,
+        redact_paths=True,
+        write_srt_file=True,
+    )
+
+    subtitle_path = dirs["subtitles"] / "input_roughcut_aggressive.srt"
+    assert manifest["subtitle_output"] == "input_roughcut_aggressive.srt"
+    assert subtitle_path.read_text(encoding="utf-8") == (
+        "1\n00:00:00,000 --> 00:00:00,400\n你好\n\n"
+        "2\n00:00:01,560 --> 00:00:01,960\n继续\n"
+    )
 
 
 def test_residual_refine_keeps_ah_for_review_by_default():

@@ -68,7 +68,8 @@ python scripts/talking_head_cleaner.py \
   --input ./input_videos \
   --output ./input_videos-refined \
   --mode aggressive \
-  --max-refine-rounds 1
+  --max-refine-rounds 1 \
+  --write-srt
 ```
 
 如果当前环境跑 MLX Whisper 报 `No Metal device available`，用 CPU-only 模式：
@@ -125,6 +126,8 @@ python scripts/talking_head_cleaner.py \
   --redact-paths
 ```
 
+如果需要给最终成片配套字幕，加 `--write-srt`。字幕会输出到 `subtitles/`，时间轴会按实际删除片段重映射到最终视频。
+
 默认情况下，即使没有任何切点，脚本也会用 FFmpeg 重新编码，以保持输出规格统一。如果希望没有切点时直接复制源文件：
 
 ```bash
@@ -156,6 +159,7 @@ output_project/
 ├── final/
 ├── manifests/
 ├── verification/
+├── subtitles/
 ├── waveforms/
 └── report.md
 ```
@@ -301,6 +305,7 @@ python scripts/talking_head_cleaner.py \
 | `--keep-pause` | 长停顿缩短后保留时长 | `0.4` |
 | `--fade-ms` | 切点音频淡化 | `30` |
 | `--hash-sources` | manifest 记录源文件 sha256 | 关闭 |
+| `--write-srt` | 输出最终成片配套 SRT 字幕 | 关闭 |
 | `--copy-when-no-cuts` | 无切点时直接复制源文件 | 关闭 |
 | `--skip-primary` | 跳过 MLX Whisper，只用 CPU 模型 | 关闭 |
 
