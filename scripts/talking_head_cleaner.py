@@ -12,6 +12,7 @@ This tool keeps the video local:
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import re
@@ -73,6 +74,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--hash-sources",
         action="store_true",
         help="Include source sha256 in manifests. Disabled by default for fast dry-runs.",
+    )
+    parser.add_argument(
+        "--redact-paths",
+        action="store_true",
+        help="Write only filenames in manifests/reports instead of absolute paths.",
     )
     parser.add_argument(
         "--copy-when-no-cuts",
@@ -156,10 +162,26 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def source_record_from_stat(path: Path, *, include_hash: bool = True) -> dict:
+def redact_path(path: Path, *, redact: bool) -> str:
+    return path.name if redact else str(path.resolve())
+
+
+def redact_probe_paths(probe_data: dict, *, redact: bool) -> dict:
+    if not redact:
+        return probe_data
+    redacted = copy.deepcopy(probe_data)
+    filename = redacted.get("format", {}).get("filename")
+    if filename:
+        redacted["format"]["filename"] = Path(filename).name
+    return redacted
+
+
+def source_record_from_stat(
+    path: Path, *, include_hash: bool = True, redact_paths: bool = False
+) -> dict:
     stat = path.stat()
     record = {
-        "path": str(path.resolve()),
+        "path": redact_path(path, redact=redact_paths),
         "name": path.name,
         "size": stat.st_size,
         "mtime_ns": stat.st_mtime_ns,
@@ -536,10 +558,13 @@ def process_one(
     skip_primary: bool,
     max_refine_rounds: int,
     hash_sources: bool,
+    redact_paths: bool,
 ) -> dict:
     stem = media.stem
     start_time = time.time()
-    source_record = source_record_from_stat(media, include_hash=hash_sources)
+    source_record = source_record_from_stat(
+        media, include_hash=hash_sources, redact_paths=redact_paths
+    )
     duration = media_duration(media)
 
     primary = None
@@ -566,8 +591,8 @@ def process_one(
     rounds: list[dict] = [
         {
             "round": 0,
-            "input": str(current_input),
-            "output": str(output),
+            "input": redact_path(current_input, redact=redact_paths),
+            "output": redact_path(output, redact=redact_paths),
             "cuts": current_cuts,
             "review_only": review,
         }
@@ -581,8 +606,8 @@ def process_one(
             rounds.append(
                 {
                     "round": round_index,
-                    "input": str(output),
-                    "output": str(output),
+                    "input": redact_path(output, redact=redact_paths),
+                    "output": redact_path(output, redact=redact_paths),
                     "residual": [],
                     "cuts": [],
                 }
@@ -598,8 +623,8 @@ def process_one(
         rounds.append(
             {
                 "round": round_index,
-                "input": str(output),
-                "output": str(refined_output),
+                "input": redact_path(output, redact=redact_paths),
+                "output": redact_path(refined_output, redact=redact_paths),
                 "residual": residual,
                 "cuts": residual_cuts,
                 "review_only": residual_review,
@@ -607,12 +632,12 @@ def process_one(
         )
         output = refined_output
 
-    final_probe = probe(output)
+    final_probe = redact_probe_paths(probe(output), redact=redact_paths)
     output_duration = float(final_probe["format"]["duration"])
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "source": str(media.resolve()),
-        "final_output": str(output.resolve()),
+        "source": redact_path(media, redact=redact_paths),
+        "final_output": redact_path(output, redact=redact_paths),
         "mode": config.mode,
         "config": asdict(config),
         "primary_model": None if skip_primary else primary_model,
@@ -667,16 +692,25 @@ def write_report(output: Path, manifests: list[dict], *, dry_run: bool = False) 
 
 
 def dry_run_project(
-    input_dir: Path, output: Path, dirs: dict[str, Path], *, mode: str, hash_sources: bool
+    input_dir: Path,
+    output: Path,
+    dirs: dict[str, Path],
+    *,
+    mode: str,
+    hash_sources: bool,
+    redact_paths: bool,
 ) -> list[dict]:
     media_files = scan_input(input_dir)
     manifests = []
     for media in media_files:
-        record = source_record_from_stat(media, include_hash=hash_sources)
+        final_output = dirs["final"] / output_name_for(media, mode=mode)
+        record = source_record_from_stat(
+            media, include_hash=hash_sources, redact_paths=redact_paths
+        )
         manifest = {
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "source": str(media.resolve()),
-            "final_output": str((dirs["final"] / output_name_for(media, mode=mode)).resolve()),
+            "source": redact_path(media, redact=redact_paths),
+            "final_output": redact_path(final_output, redact=redact_paths),
             "mode": mode,
             "input_duration": 0.0,
             "output_duration": 0.0,
@@ -706,7 +740,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         manifests = dry_run_project(
-            args.input, args.output, dirs, mode=args.mode, hash_sources=args.hash_sources
+            args.input,
+            args.output,
+            dirs,
+            mode=args.mode,
+            hash_sources=args.hash_sources,
+            redact_paths=args.redact_paths,
         )
         print(f"dry-run created project at {args.output} for {len(manifests)} mp4 files")
         return 0
@@ -734,6 +773,7 @@ def main(argv: list[str] | None = None) -> int:
             skip_primary=args.skip_primary,
             max_refine_rounds=args.max_refine_rounds,
             hash_sources=args.hash_sources,
+            redact_paths=args.redact_paths,
         )
         manifests.append(manifest)
         print(

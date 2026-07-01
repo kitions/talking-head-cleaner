@@ -20,6 +20,7 @@ from talking_head_cleaner import (  # noqa: E402
     scan_input,
     SecondaryTranscriber,
     source_record_from_stat,
+    dry_run_project,
 )
 
 
@@ -130,6 +131,42 @@ def test_source_record_from_stat_is_serializable(tmp_path):
     json.dumps(record)
 
 
+def test_redact_path_returns_name_only():
+    from talking_head_cleaner import redact_path
+
+    assert redact_path(Path("/private/input/a.mp4"), redact=True) == "a.mp4"
+    assert redact_path(Path("/private/input/a.mp4"), redact=False).endswith(
+        "/private/input/a.mp4"
+    )
+
+
+def test_source_record_redacts_path_when_requested(tmp_path):
+    media = tmp_path / "a.mp4"
+    media.write_bytes(b"abc")
+
+    record = source_record_from_stat(media, include_hash=False, redact_paths=True)
+
+    assert record["path"] == "a.mp4"
+    assert record["name"] == "a.mp4"
+
+
+def test_redact_probe_paths_updates_format_filename():
+    from talking_head_cleaner import redact_probe_paths
+
+    probe = {
+        "format": {
+            "filename": "/private/output/a_roughcut_aggressive.mp4",
+            "duration": "10.0",
+        },
+        "streams": [],
+    }
+
+    redacted = redact_probe_paths(probe, redact=True)
+
+    assert redacted["format"]["filename"] == "a_roughcut_aggressive.mp4"
+    assert probe["format"]["filename"] == "/private/output/a_roughcut_aggressive.mp4"
+
+
 def test_parse_args_supports_dry_run_and_refine_rounds(tmp_path):
     args = parse_args(
         [
@@ -152,6 +189,20 @@ def test_parse_args_supports_dry_run_and_refine_rounds(tmp_path):
     assert args.max_refine_rounds == 1
 
 
+def test_parse_args_supports_redact_paths(tmp_path):
+    args = parse_args(
+        [
+            "--input",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out"),
+            "--redact-paths",
+        ]
+    )
+
+    assert args.redact_paths is True
+
+
 def test_scan_input_accepts_uppercase_mp4(tmp_path):
     lower = tmp_path / "a.mp4"
     upper = tmp_path / "b.MP4"
@@ -171,6 +222,29 @@ def test_dry_run_source_record_does_not_hash_by_default(tmp_path):
 
     assert "sha256" not in record
     assert record["size"] == 3
+
+
+def test_dry_run_redacts_manifest_paths_when_requested(tmp_path):
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    media = input_dir / "a.mp4"
+    media.write_bytes(b"abc")
+    output = tmp_path / "out"
+    dirs = build_project_dirs(output)
+
+    manifests = dry_run_project(
+        input_dir,
+        output,
+        dirs,
+        mode="aggressive",
+        hash_sources=False,
+        redact_paths=True,
+    )
+
+    manifest = manifests[0]
+    assert manifest["source"] == "a.mp4"
+    assert manifest["final_output"] == "a_roughcut_aggressive.mp4"
+    assert manifest["source_record"]["path"] == "a.mp4"
 
 
 def test_residual_refine_keeps_ah_for_review_by_default():

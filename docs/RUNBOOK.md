@@ -114,6 +114,17 @@ python scripts/talking_head_cleaner.py \
   --hash-sources
 ```
 
+公开分享 manifest 或 `report.md` 前，建议使用路径脱敏模式，只写入文件名，不写入本机绝对路径：
+
+```bash
+python scripts/talking_head_cleaner.py \
+  --input ./input_videos \
+  --output ./input_videos-refined \
+  --mode aggressive \
+  --max-refine-rounds 1 \
+  --redact-paths
+```
+
 默认情况下，即使没有任何切点，脚本也会用 FFmpeg 重新编码，以保持输出规格统一。如果希望没有切点时直接复制源文件：
 
 ```bash

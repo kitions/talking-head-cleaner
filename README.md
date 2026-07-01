@@ -119,6 +119,17 @@ python scripts/talking_head_cleaner.py \
 
 如果希望 manifest 记录源文件 sha256，可加 `--hash-sources`。默认不计算 hash，避免 dry-run 或大文件扫描变慢。
 
+如果要把 manifest 或 `report.md` 分享给别人，建议加 `--redact-paths`，只记录文件名，不写入本机绝对路径：
+
+```bash
+python scripts/talking_head_cleaner.py \
+  --input ./input_videos \
+  --output ./output_project \
+  --mode aggressive \
+  --max-refine-rounds 1 \
+  --redact-paths
+```
+
 如果当前环境没有可用 Apple Metal/GPU，MLX Whisper 可能报 `No Metal device available`。这时用 CPU-only 模式：
 
 ```bash
