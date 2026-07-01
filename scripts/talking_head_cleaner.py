@@ -98,6 +98,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def validate_args(args: argparse.Namespace) -> None:
+    if args.max_refine_rounds < 0 or args.max_refine_rounds > 2:
+        raise SystemExit("--max-refine-rounds must be between 0 and 2")
+    if args.keep_pause < 0.05 or args.keep_pause > 2.0:
+        raise SystemExit("--keep-pause must be between 0.05 and 2.0 seconds")
+    if args.fade_ms < 0 or args.fade_ms > 200:
+        raise SystemExit("--fade-ms must be between 0 and 200")
+
+
 def clean_token(text: str) -> str:
     return PUNCTUATION_RE.sub("", str(text or "")).strip().lower()
 
@@ -727,6 +736,7 @@ def dry_run_project(
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    validate_args(args)
     if not args.input.is_dir():
         raise SystemExit(f"input directory not found: {args.input}")
     args.output.mkdir(parents=True, exist_ok=True)

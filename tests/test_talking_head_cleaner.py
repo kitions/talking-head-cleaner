@@ -203,6 +203,137 @@ def test_parse_args_supports_redact_paths(tmp_path):
     assert args.redact_paths is True
 
 
+def test_validate_args_rejects_negative_refine_rounds(tmp_path):
+    from talking_head_cleaner import validate_args
+
+    args = parse_args(
+        [
+            "--input",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out"),
+            "--max-refine-rounds",
+            "-1",
+        ]
+    )
+
+    try:
+        validate_args(args)
+    except SystemExit as exc:
+        assert "max-refine-rounds" in str(exc)
+    else:
+        raise AssertionError("expected SystemExit")
+
+
+def test_validate_args_rejects_excessive_refine_rounds(tmp_path):
+    from talking_head_cleaner import validate_args
+
+    args = parse_args(
+        [
+            "--input",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out"),
+            "--max-refine-rounds",
+            "4",
+        ]
+    )
+
+    try:
+        validate_args(args)
+    except SystemExit as exc:
+        assert "max-refine-rounds" in str(exc)
+    else:
+        raise AssertionError("expected SystemExit")
+
+
+def test_validate_args_rejects_out_of_range_keep_pause(tmp_path):
+    from talking_head_cleaner import validate_args
+
+    low = parse_args(
+        [
+            "--input",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out"),
+            "--keep-pause",
+            "0.01",
+        ]
+    )
+    high = parse_args(
+        [
+            "--input",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out"),
+            "--keep-pause",
+            "2.5",
+        ]
+    )
+
+    for args in [low, high]:
+        try:
+            validate_args(args)
+        except SystemExit as exc:
+            assert "keep-pause" in str(exc)
+        else:
+            raise AssertionError("expected SystemExit")
+
+
+def test_validate_args_rejects_out_of_range_fade_ms(tmp_path):
+    from talking_head_cleaner import validate_args
+
+    low = parse_args(
+        [
+            "--input",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out"),
+            "--fade-ms",
+            "-1",
+        ]
+    )
+    high = parse_args(
+        [
+            "--input",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out"),
+            "--fade-ms",
+            "250",
+        ]
+    )
+
+    for args in [low, high]:
+        try:
+            validate_args(args)
+        except SystemExit as exc:
+            assert "fade-ms" in str(exc)
+        else:
+            raise AssertionError("expected SystemExit")
+
+
+def test_validate_args_accepts_boundary_values(tmp_path):
+    from talking_head_cleaner import validate_args
+
+    args = parse_args(
+        [
+            "--input",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out"),
+            "--max-refine-rounds",
+            "2",
+            "--keep-pause",
+            "0.05",
+            "--fade-ms",
+            "200",
+        ]
+    )
+
+    validate_args(args)
+
+
 def test_scan_input_accepts_uppercase_mp4(tmp_path):
     lower = tmp_path / "a.mp4"
     upper = tmp_path / "b.MP4"
