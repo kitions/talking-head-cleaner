@@ -26,7 +26,7 @@ macOS 可先安装 FFmpeg：
 brew install ffmpeg
 ```
 
-创建虚拟环境：
+创建虚拟环境并安装通用 CPU 依赖：
 
 ```bash
 python3.12 -m venv .venv
@@ -36,6 +36,30 @@ pip install -r requirements.txt
 ```
 
 如果没有 `python3.12`，也可以先用系统已有的 Python 3.11+ 尝试。
+
+macOS Apple Silicon 如果想启用 MLX Whisper 主模型，再安装可选依赖：
+
+```bash
+pip install -r requirements-macos-mlx.txt
+```
+
+Windows / Linux 默认使用 CPU-only 模式，不安装 MLX。
+
+Windows PowerShell 示例：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip
+pip install -r requirements.txt
+```
+
+Windows 还需要单独安装 FFmpeg，并确认下面两个命令能输出版本信息：
+
+```powershell
+ffmpeg -version
+ffprobe -version
+```
 
 ## 快速开始
 
@@ -77,6 +101,17 @@ python scripts/talking_head_cleaner.py \
   --output ./output_project \
   --mode aggressive \
   --max-refine-rounds 1 \
+  --skip-primary
+```
+
+Windows 必须使用 CPU-only 模式：
+
+```powershell
+python scripts\talking_head_cleaner.py `
+  --input .\input_videos `
+  --output .\output_project `
+  --mode aggressive `
+  --max-refine-rounds 1 `
   --skip-primary
 ```
 

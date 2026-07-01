@@ -12,7 +12,7 @@ scripts/talking_head_cleaner.py
 
 ## 环境要求
 
-建议在项目内创建 Python 虚拟环境：
+建议在项目内创建 Python 虚拟环境并安装通用 CPU 依赖：
 
 ```bash
 python3.12 -m venv .venv
@@ -21,15 +21,35 @@ pip install -U pip
 pip install -r requirements.txt
 ```
 
+macOS Apple Silicon 如果想启用 MLX Whisper 主模型，再安装：
+
+```bash
+pip install -r requirements-macos-mlx.txt
+```
+
+Windows PowerShell：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip
+pip install -r requirements.txt
+```
+
 需要本机已有：
 
 - `ffmpeg`
 - `ffprobe`
-- `mlx-whisper`
 - `whisper-timestamped`
 - `torch`
 
+macOS MLX 增强模式还需要：
+
+- `mlx-whisper`
+
 如果使用完整模式，MLX Whisper 需要可用的 Apple Metal/GPU 环境。远程、无头或沙盒环境有时拿不到 Metal，这种情况下要加 `--skip-primary`，改用 CPU-only 复核模型。
+
+Windows 不支持 MLX Whisper，必须加 `--skip-primary`。
 
 ## 新视频推荐流程
 
@@ -59,6 +79,17 @@ python scripts/talking_head_cleaner.py \
   --output ./input_videos-refined \
   --mode aggressive \
   --max-refine-rounds 1 \
+  --skip-primary
+```
+
+Windows PowerShell：
+
+```powershell
+python scripts\talking_head_cleaner.py `
+  --input .\input_videos `
+  --output .\input_videos-refined `
+  --mode aggressive `
+  --max-refine-rounds 1 `
   --skip-primary
 ```
 
