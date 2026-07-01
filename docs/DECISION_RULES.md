@@ -59,6 +59,7 @@
 - `aggressive` 模式自动删除；
 - `safe` 模式只记录或谨慎删除；
 - 如果和后字粘连严重，进入 review。
+- 在 residual 复核补切阶段，默认进入 review-only，不自动补切。
 
 ### C 类：谨慎处理
 
@@ -204,4 +205,3 @@ Review 清单应包含：
   "suggestion": "manual_review"
 }
 ```
-

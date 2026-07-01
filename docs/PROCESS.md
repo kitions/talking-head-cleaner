@@ -43,6 +43,8 @@ analysis/*_secondary_disfluency.json
 
 如果复核发现 residual filler，会生成一轮补切。
 
+复核补切阶段默认只自动补切 A 类 filler（“嗯、呃、额、唔、呣”）。`啊` 会进入 review-only，避免把自然语气误删。
+
 ## 阶段 3：生成补切版本
 
 根据复核结果，把明确 residual 再补切一次。

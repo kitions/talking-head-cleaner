@@ -72,6 +72,27 @@ python scripts/talking_head_cleaner.py \
   --dry-run
 ```
 
+dry-run 默认不计算源文件 sha256，只记录文件大小和修改时间。如果需要完整源文件 hash：
+
+```bash
+python scripts/talking_head_cleaner.py \
+  --input ./input_videos \
+  --output ./input_videos-refined \
+  --mode aggressive \
+  --dry-run \
+  --hash-sources
+```
+
+默认情况下，即使没有任何切点，脚本也会用 FFmpeg 重新编码，以保持输出规格统一。如果希望没有切点时直接复制源文件：
+
+```bash
+python scripts/talking_head_cleaner.py \
+  --input ./input_videos \
+  --output ./input_videos-refined \
+  --mode aggressive \
+  --copy-when-no-cuts
+```
+
 也可以让 AI agent 按当前命令代跑：
 
 ```text
@@ -208,6 +229,9 @@ python scripts/talking_head_cleaner.py \
 | `--max-refine-rounds` | 自动补切轮数 | `1` |
 | `--keep-pause` | 长停顿缩短后保留时长 | `0.4` |
 | `--fade-ms` | 切点音频淡化 | `30` |
+| `--hash-sources` | manifest 记录源文件 sha256 | 关闭 |
+| `--copy-when-no-cuts` | 无切点时直接复制源文件 | 关闭 |
+| `--skip-primary` | 跳过 MLX Whisper，只用 CPU 模型 | 关闭 |
 
 ## 人工复核建议
 

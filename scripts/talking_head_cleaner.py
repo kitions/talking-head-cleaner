@@ -48,6 +48,7 @@ class CleanerConfig:
     keep_pause: float = 0.4
     min_confidence: float = 0.05
     max_filler_duration: float = 1.2
+    copy_when_no_cuts: bool = False
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -68,6 +69,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--keep-pause", type=float, default=0.4)
     parser.add_argument("--fade-ms", type=float, default=30.0)
     parser.add_argument("--dry-run", action="store_true", help="Create project skeleton only.")
+    parser.add_argument(
+        "--hash-sources",
+        action="store_true",
+        help="Include source sha256 in manifests. Disabled by default for fast dry-runs.",
+    )
+    parser.add_argument(
+        "--copy-when-no-cuts",
+        action="store_true",
+        help="Copy source instead of re-encoding when no cuts are selected.",
+    )
     parser.add_argument(
         "--skip-primary",
         action="store_true",
@@ -145,15 +156,17 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def source_record_from_stat(path: Path) -> dict:
+def source_record_from_stat(path: Path, *, include_hash: bool = True) -> dict:
     stat = path.stat()
-    return {
+    record = {
         "path": str(path.resolve()),
         "name": path.name,
         "size": stat.st_size,
         "mtime_ns": stat.st_mtime_ns,
-        "sha256": sha256(path),
     }
+    if include_hash:
+        record["sha256"] = sha256(path)
+    return record
 
 
 def probe(path: Path) -> dict:
@@ -343,10 +356,10 @@ def build_filter_complex(keep_intervals: list[tuple[float, float]], *, fade: flo
 
 def render(media: Path, output: Path, cuts: list[dict], *, duration: float, config: CleanerConfig) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
-    if not cuts:
+    if not cuts and config.copy_when_no_cuts:
         shutil.copy2(media, output)
         return
-    keep = invert_cuts(cuts, duration=duration)
+    keep = invert_cuts(cuts, duration=duration) if cuts else [(0.0, duration)]
     filter_graph = build_filter_complex(keep, fade=config.fade)
     run(
         [
@@ -403,26 +416,47 @@ def transcribe_primary(media: Path, output: Path, *, model_name: str) -> dict:
     return result
 
 
-def transcribe_secondary(media: Path, output: Path, *, model_name: str) -> dict:
-    import whisper_timestamped as whisper
+class SecondaryTranscriber:
+    def __init__(self, model_name: str, *, whisper_module=None) -> None:
+        self.model_name = model_name
+        self._whisper = whisper_module
+        self._model = None
 
-    model = whisper.load_model(model_name, device="cpu")
-    audio = whisper.load_audio(str(media))
-    result = whisper.transcribe(
-        model,
-        audio,
-        language="zh",
-        detect_disfluencies=True,
-        condition_on_previous_text=False,
-        initial_prompt=PROMPT,
-        beam_size=5,
-        best_of=5,
-        temperature=0.0,
-        fp16=False,
-        verbose=False,
-    )
-    write_json(output, result)
-    return result
+    @property
+    def whisper(self):
+        if self._whisper is None:
+            import whisper_timestamped as whisper
+
+            self._whisper = whisper
+        return self._whisper
+
+    @property
+    def model(self):
+        if self._model is None:
+            self._model = self.whisper.load_model(self.model_name, device="cpu")
+        return self._model
+
+    def transcribe(self, media: Path, output: Path) -> dict:
+        audio = self.whisper.load_audio(str(media))
+        result = self.whisper.transcribe(
+            self.model,
+            audio,
+            language="zh",
+            detect_disfluencies=True,
+            condition_on_previous_text=False,
+            initial_prompt=PROMPT,
+            beam_size=5,
+            best_of=5,
+            temperature=0.0,
+            fp16=False,
+            verbose=False,
+        )
+        write_json(output, result)
+        return result
+
+
+def transcribe_secondary(media: Path, output: Path, *, model_name: str) -> dict:
+    return SecondaryTranscriber(model_name).transcribe(media, output)
 
 
 def find_residual_fillers(transcript: dict) -> list[dict]:
@@ -439,6 +473,40 @@ def find_residual_fillers(transcript: dict) -> list[dict]:
                 }
             )
     return residual
+
+
+def plan_residual_refine_cuts(
+    residual: list[dict], *, config: CleanerConfig, round_index: int
+) -> tuple[list[dict], list[dict]]:
+    cuts: list[dict] = []
+    review: list[dict] = []
+    source = f"verification_round_{round_index}"
+    for item in residual:
+        token = clean_token(item["token"])
+        if token in FILLER_B:
+            review.append(
+                {
+                    "start": round(float(item["start"]), 3),
+                    "end": round(float(item["end"]), 3),
+                    "text": token,
+                    "reason": f"residual_review_token:{token}",
+                    "confidence": 1.0,
+                    "source": source,
+                }
+            )
+            continue
+        if token not in FILLER_A:
+            continue
+        cuts.append(
+            {
+                "word": token,
+                "start": float(item["start"]),
+                "end": float(item["end"]),
+                "confidence": 1.0,
+            }
+        )
+    accepted, accepted_review = build_cut_candidates(cuts, config=config, source=source)
+    return merge_cuts(accepted, gap=config.merge_gap), review + accepted_review
 
 
 def decide_cuts(primary: dict | None, secondary: dict, *, config: CleanerConfig) -> tuple[list[dict], list[dict]]:
@@ -464,12 +532,14 @@ def process_one(
     config: CleanerConfig,
     primary_model: str,
     secondary_model: str,
+    secondary_transcriber: SecondaryTranscriber,
     skip_primary: bool,
     max_refine_rounds: int,
+    hash_sources: bool,
 ) -> dict:
     stem = media.stem
     start_time = time.time()
-    source_record = source_record_from_stat(media)
+    source_record = source_record_from_stat(media, include_hash=hash_sources)
     duration = media_duration(media)
 
     primary = None
@@ -485,9 +555,7 @@ def process_one(
                 {"error": str(exc), "fallback": "secondary_only"},
             )
 
-    secondary = transcribe_secondary(
-        media, dirs["analysis"] / f"{stem}_secondary_disfluency.json", model_name=secondary_model
-    )
+    secondary = secondary_transcriber.transcribe(media, dirs["analysis"] / f"{stem}_secondary_disfluency.json")
     cuts, review = decide_cuts(primary, secondary, config=config)
 
     current_input = media
@@ -507,7 +575,7 @@ def process_one(
 
     for round_index in range(1, max_refine_rounds + 1):
         verification_path = dirs["verification"] / f"{stem}_round{round_index}_verification.json"
-        verification = transcribe_secondary(output, verification_path, model_name=secondary_model)
+        verification = secondary_transcriber.transcribe(output, verification_path)
         residual = find_residual_fillers(verification)
         if not residual:
             rounds.append(
@@ -521,14 +589,9 @@ def process_one(
             )
             break
 
-        residual_words = [
-            {"word": item["token"], "start": item["start"], "end": item["end"], "confidence": 1.0}
-            for item in residual
-        ]
-        residual_cuts, residual_review = build_cut_candidates(
-            residual_words, config=config, source=f"verification_round_{round_index}"
+        residual_cuts, residual_review = plan_residual_refine_cuts(
+            residual, config=config, round_index=round_index
         )
-        residual_cuts = merge_cuts(residual_cuts, gap=config.merge_gap)
         refined_output = dirs["final"] / f"{media.stem}_roughcut_{config.mode}_r{round_index}.mp4"
         current_duration = media_duration(output)
         render(output, refined_output, residual_cuts, duration=current_duration, config=config)
@@ -567,7 +630,9 @@ def process_one(
 
 
 def scan_input(input_dir: Path) -> list[Path]:
-    return sorted(path for path in input_dir.glob("*.mp4") if path.is_file())
+    return sorted(
+        path for path in input_dir.iterdir() if path.is_file() and path.suffix.lower() == ".mp4"
+    )
 
 
 def write_report(output: Path, manifests: list[dict], *, dry_run: bool = False) -> None:
@@ -601,11 +666,13 @@ def write_report(output: Path, manifests: list[dict], *, dry_run: bool = False) 
     (output / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def dry_run_project(input_dir: Path, output: Path, dirs: dict[str, Path], *, mode: str) -> list[dict]:
+def dry_run_project(
+    input_dir: Path, output: Path, dirs: dict[str, Path], *, mode: str, hash_sources: bool
+) -> list[dict]:
     media_files = scan_input(input_dir)
     manifests = []
     for media in media_files:
-        record = source_record_from_stat(media)
+        record = source_record_from_stat(media, include_hash=hash_sources)
         manifest = {
             "created_at": datetime.now(timezone.utc).isoformat(),
             "source": str(media.resolve()),
@@ -634,10 +701,13 @@ def main(argv: list[str] | None = None) -> int:
         mode=args.mode,
         keep_pause=args.keep_pause,
         fade=args.fade_ms / 1000,
+        copy_when_no_cuts=args.copy_when_no_cuts,
     )
 
     if args.dry_run:
-        manifests = dry_run_project(args.input, args.output, dirs, mode=args.mode)
+        manifests = dry_run_project(
+            args.input, args.output, dirs, mode=args.mode, hash_sources=args.hash_sources
+        )
         print(f"dry-run created project at {args.output} for {len(manifests)} mp4 files")
         return 0
 
@@ -647,6 +717,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     manifests: list[dict] = []
+    secondary_transcriber = SecondaryTranscriber(args.secondary_model)
     for media in media_files:
         final_path = dirs["final"] / output_name_for(media, mode=args.mode)
         if args.skip_existing and final_path.exists():
@@ -659,8 +730,10 @@ def main(argv: list[str] | None = None) -> int:
             config=config,
             primary_model=args.primary_model,
             secondary_model=args.secondary_model,
+            secondary_transcriber=secondary_transcriber,
             skip_primary=args.skip_primary,
             max_refine_rounds=args.max_refine_rounds,
+            hash_sources=args.hash_sources,
         )
         manifests.append(manifest)
         print(
