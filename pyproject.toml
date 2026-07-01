@@ -1,0 +1,29 @@
+[project]
+name = "talking-head-cleaner"
+version = "0.1.0"
+description = "Local-first talking-head video cleaner using Whisper timestamps and FFmpeg."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "kitions" }]
+dependencies = [
+  "whisper-timestamped",
+  "torch",
+]
+
+[project.optional-dependencies]
+macos-mlx = ["mlx-whisper"]
+dev = ["pytest"]
+
+[project.scripts]
+talking-head-cleaner = "talking_head_cleaner:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.setuptools]
+py-modules = ["talking_head_cleaner"]
+
+[tool.setuptools.package-dir]
+"" = "scripts"

@@ -52,10 +52,16 @@ brew install ffmpeg
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-pip install -r requirements.txt
+pip install -e ".[dev]"
 ```
 
 如果没有 `python3.12`，也可以先用系统已有的 Python 3.11+ 尝试。
+
+项目元数据以 `pyproject.toml` 为准；`requirements.txt` 保留为兼容安装入口：
+
+```bash
+pip install -r requirements.txt
+```
 
 macOS Apple Silicon 如果想启用 MLX Whisper 主模型，再安装可选依赖：
 
@@ -71,7 +77,7 @@ Windows PowerShell 示例：
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
-pip install -r requirements.txt
+pip install -e ".[dev]"
 ```
 
 Windows 还需要单独安装 FFmpeg，并确认下面两个命令能输出版本信息：
