@@ -1,0 +1,32 @@
+# macOS / Python cache
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local virtual environments
+.venv/
+venv/
+
+# Generated video outputs and private transcripts
+final/
+final_v2/
+verification/
+verification_v2/
+waveforms/
+work/
+analysis/
+preview/
+
+# Generated manifests from private media
+manifests/
+manifests_v2/
+summary.json
+
+# Common large media inputs/outputs
+*.mp4
+*.mov
+*.m4v
+*.wav
+*.mp3
+*.aac
